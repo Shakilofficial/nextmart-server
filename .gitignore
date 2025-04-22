@@ -12,7 +12,6 @@ pids
 *.pid.lock
 
 # Environment Variables
-.env
 
 # Node modules
 node_modules/
@@ -50,3 +49,4 @@ coverage/
 .vercel
 .DS_Store
 
+config.bat
