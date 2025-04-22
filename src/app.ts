@@ -9,12 +9,11 @@ import router from "./app/routes";
 // import seedAdmin from './app/DB/seed';
 
 const app: Application = express();
-
-// Middleware setup
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
-app.use(cookieParser());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Middleware setup
+app.use(cors({ origin: ["https://ecom-nexa-web.vercel.app","https://nexa-server.vercel.app/api/v1/ssl/ipn"], credentials: true }));
+app.use(cookieParser());
+
 
 app.use("/api/v1", router);
 

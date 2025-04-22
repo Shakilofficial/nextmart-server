@@ -23,7 +23,7 @@ const initPayment = async (paymentData: { total_amount: number, tran_id: string 
     const data = {
         total_amount,
         currency: 'BDT',
-        tran_id, // Use unique tran_id for each API call
+        tran_id,
         success_url: `${config.ssl.validation_url}?tran_id=${tran_id}`,
         fail_url: config.ssl.failed_url as string,
         cancel_url: config.ssl.cancel_url as string,
@@ -76,35 +76,23 @@ const validatePaymentService = async (tran_id: string): Promise<boolean> => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
+    let updatedOrder: any;
+
     try {
-        //@ts-ignore
+        // @ts-ignore
         const validationResponse = await sslcz.transactionQueryByTransactionId({
             tran_id
         });
 
-        console.log(validationResponse.element);
+        const element = validationResponse.element[0];
 
-        let data;
-
-        if (validationResponse.element[0].status === 'VALID' || validationResponse.element[0].status === 'VALIDATED') {
-            data = {
-                status: 'Paid',
-                gatewayResponse: validationResponse.element[0]
-            };
-        } else if (validationResponse.element[0].status === 'INVALID_TRANSACTION') {
-            data = {
-                status: 'Failed',
-                gatewayResponse: validationResponse.element[0]
-            };
-        } else {
-            data = {
-                status: 'Failed',
-                gatewayResponse: validationResponse.element[0]
-            };
-        }
+        const data = {
+            status: (element.status === 'VALID' || element.status === 'VALIDATED') ? 'Paid' : 'Failed',
+            gatewayResponse: element
+        };
 
         const updatedPayment = await Payment.findOneAndUpdate(
-            { transactionId: validationResponse.element[0].tran_id },
+            { transactionId: element.tran_id },
             data,
             { new: true, session }
         );
@@ -113,11 +101,9 @@ const validatePaymentService = async (tran_id: string): Promise<boolean> => {
             throw new Error("Payment not updated");
         }
 
-        const updatedOrder = await Order.findByIdAndUpdate(
-            updatedPayment?.order,
-            {
-                paymentStatus: data.status
-            },
+        updatedOrder = await Order.findByIdAndUpdate(
+            updatedPayment.order,
+            { paymentStatus: data.status },
             { new: true, session }
         ).populate('user products.product');
 
@@ -129,16 +115,21 @@ const validatePaymentService = async (tran_id: string): Promise<boolean> => {
             throw new Error("Payment failed");
         }
 
-        // Commit transaction only if no errors occurred
-        await session.commitTransaction();
+        await session.commitTransaction(); 
         session.endSession();
 
-        console.log("email")
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
 
+        console.error("Transaction Error:", error);
+        return false;
+    }
+
+    try {
         const pdfBuffer = await generateOrderInvoicePDF(updatedOrder);
         const emailContent = await EmailHelper.createEmailContent(
-            //@ts-ignore
-            { userName: updatedOrder.user.name || "" },
+            { userName: updatedOrder?.user?.name || "" },
             'orderInvoice'
         );
 
@@ -149,8 +140,7 @@ const validatePaymentService = async (tran_id: string): Promise<boolean> => {
         };
 
         await EmailHelper.sendEmail(
-            //@ts-ignore
-            updatedOrder.user.email,
+            updatedOrder?.user?.email,
             emailContent,
             "Order confirmed-Payment Success!",
             attachment
@@ -158,13 +148,9 @@ const validatePaymentService = async (tran_id: string): Promise<boolean> => {
 
         return true;
 
-    } catch (error) {
-        // Only abort the transaction if an error occurred
-        await session.abortTransaction();
-        session.endSession();
-
-        console.error(error); // Log the error for debugging
-        return false;
+    } catch (emailErr) {
+        console.error("Email Sending Error:", emailErr);
+        return true;
     }
 };
 
